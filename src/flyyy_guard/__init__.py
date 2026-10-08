@@ -1,6 +1,6 @@
 """flyyy-guard: block prompt injection before it reaches your LLM, using FLYYY's guardrail check."""
 
-__version__ = "0.1.0rc1"
+__version__ = "0.1.0"
 
 from flyyy_guard.client import (  # noqa: E402
     FlyyyGuardClient,

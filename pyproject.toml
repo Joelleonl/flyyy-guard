@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flyyy-guard"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "FLYYY prompt-injection guard: blocks malicious prompts before they reach your LLM."
 readme = "README.md"
 license = "MIT"
