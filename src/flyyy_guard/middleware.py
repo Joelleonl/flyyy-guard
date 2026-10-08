@@ -1,4 +1,4 @@
-"""LangChain v1 agent middleware that checks every model input with FLYYY before the model runs.
+"""LangChain v1 agent middleware that checks the user's prompt with FLYYY before the agent runs.
 
 Usage:
     from flyyy_guard import FlyyyGuardMiddleware
@@ -24,6 +24,9 @@ from flyyy_guard.client import FlyyyGuardClient, GuardDecision, Source
 logger = logging.getLogger("flyyy_guard")
 
 DEFAULT_BLOCK_MESSAGE = "Your request was blocked by policy."
+# Used when the check itself failed (FLYYY unreachable, timeout, rejected credentials), so a
+# configuration problem is not mistaken for a detected attack.
+DEFAULT_UNAVAILABLE_MESSAGE = "The safety check is unavailable right now, so your request was not processed. Please try again."
 REDACTED_INPUT = "[Removed: blocked by FLYYY guard]"
 
 
@@ -51,12 +54,15 @@ def _session_id() -> Optional[str]:
 
 
 class FlyyyGuardMiddleware(AgentMiddleware):
-    """Blocks prompt injection before each model call.
+    """Checks the user's prompt once, before the agent starts.
 
-    Checks every message added since the model last ran: the user's message
-    (`source="user_input"`) and, by default, tool results (`source="tool_output"`), which
-    catches injection hidden in retrieved documents. When FLYYY blocks one, the run ends
-    with `block_message` and the model is never called.
+    One FLYYY check per `agent.invoke(...)`: the user's new message is checked before the
+    agent runs. If FLYYY flags it, the run ends with `block_message` and neither the model
+    nor any tool is called; otherwise the agent runs normally with no further checks.
+    Every check (allowed or blocked) is recorded in FLYYY's Guardrails view.
+
+    To also check tool results (injection hidden in retrieved documents), add
+    `FlyyyToolOutputGuardMiddleware()` as well; it checks before each model call.
     """
 
     def __init__(
@@ -65,7 +71,7 @@ class FlyyyGuardMiddleware(AgentMiddleware):
         url: Optional[str] = None,
         api_key: Optional[str] = None,
         block_message: str = DEFAULT_BLOCK_MESSAGE,
-        check_tool_outputs: bool = True,
+        unavailable_message: str = DEFAULT_UNAVAILABLE_MESSAGE,
         redact_blocked: bool = True,
         fail_open: Optional[bool] = None,
         timeout: Optional[float] = None,
@@ -74,19 +80,17 @@ class FlyyyGuardMiddleware(AgentMiddleware):
         super().__init__()
         self.client = client or FlyyyGuardClient(url, api_key, timeout=timeout, fail_open=fail_open)
         self.block_message = block_message
-        self.check_tool_outputs = check_tool_outputs
+        self.unavailable_message = unavailable_message
         self.redact_blocked = redact_blocked
 
     def _pending(self, messages: list[AnyMessage]) -> list[tuple[AnyMessage, Source]]:
-        """Messages added since the last model response (newest last)."""
+        """User messages added since the last model response (newest last)."""
         pending: list[tuple[AnyMessage, Source]] = []
         for message in reversed(messages):
             if isinstance(message, AIMessage):
                 break
             if isinstance(message, HumanMessage):
                 pending.append((message, "user_input"))
-            elif isinstance(message, ToolMessage) and self.check_tool_outputs:
-                pending.append((message, "tool_output"))
         pending.reverse()
         return pending
 
@@ -101,13 +105,14 @@ class FlyyyGuardMiddleware(AgentMiddleware):
                 updates.append(HumanMessage(content=REDACTED_INPUT, id=message.id))
         updates.append(
             AIMessage(
-                content=self.block_message,
+                content=self.unavailable_message if decision.error else self.block_message,
                 response_metadata={
                     "flyyy_guard": {
                         "blocked": True,
                         "attack_type": decision.attack_type,
                         "risk_score": decision.risk_score,
                         "request_id": decision.request_id,
+                        "error": decision.error,
                     }
                 },
             )
@@ -125,6 +130,35 @@ class FlyyyGuardMiddleware(AgentMiddleware):
                 )
                 return self._blocked_update(message, decision)
         return None
+
+    @hook_config(can_jump_to=["end"])
+    def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        return self._evaluate(state)
+
+    @hook_config(can_jump_to=["end"])
+    async def abefore_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._evaluate, state)
+
+
+class FlyyyToolOutputGuardMiddleware(FlyyyGuardMiddleware):
+    """Optional: checks tool results before each model call (indirect prompt injection).
+
+    Use together with `FlyyyGuardMiddleware`. Adds one FLYYY check per tool result.
+    """
+
+    def _pending(self, messages: list[AnyMessage]) -> list[tuple[AnyMessage, Source]]:
+        pending: list[tuple[AnyMessage, Source]] = []
+        for message in reversed(messages):
+            if isinstance(message, AIMessage):
+                break
+            if isinstance(message, ToolMessage):
+                pending.append((message, "tool_output"))
+        pending.reverse()
+        return pending
+
+    # Runs before each model call instead of once before the agent.
+    before_agent = AgentMiddleware.before_agent
+    abefore_agent = AgentMiddleware.abefore_agent
 
     @hook_config(can_jump_to=["end"])
     def before_model(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:

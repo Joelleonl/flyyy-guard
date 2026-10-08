@@ -13,6 +13,7 @@ from flyyy_guard.client import (  # noqa: E402
 __all__ = [
     "FlyyyGuardClient",
     "FlyyyGuardMiddleware",
+    "FlyyyToolOutputGuardMiddleware",
     "GuardDecision",
     "PromptBlockedError",
     "check",
@@ -23,8 +24,8 @@ __all__ = [
 
 def __getattr__(name: str):
     # Imported lazily so `pip install flyyy-guard` works without LangChain.
-    if name == "FlyyyGuardMiddleware":
-        from flyyy_guard.middleware import FlyyyGuardMiddleware
+    if name in ("FlyyyGuardMiddleware", "FlyyyToolOutputGuardMiddleware"):
+        from flyyy_guard import middleware
 
-        return FlyyyGuardMiddleware
+        return getattr(middleware, name)
     raise AttributeError(f"module 'flyyy_guard' has no attribute {name!r}")

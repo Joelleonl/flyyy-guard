@@ -126,7 +126,7 @@ twine upload dist/*                           # real release (asks for a PyPI AP
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Every request is blocked with "guardrail key rejected" | wrong, revoked or missing key | create a new key in Guardrails and update `.env` |
+| Every request is blocked with "guardrail credentials rejected" | wrong or revoked LANGFUSE_* keys (or guardrail key) | copy the project's current keys from FLYYY into `.env` |
 | Every request is blocked with "guardrail unavailable" | agent can't reach FLYYY (DNS, firewall, HTTPS) | test with the curl command above from the agent's network; or set `FLYYY_GUARD_FAIL_OPEN=true` temporarily |
 | `ValueError: FLYYY_URL is not set` at startup | env vars not loaded before the middleware is created | call `load_dotenv()` before `create_agent` |
 | `ImportError: FlyyyGuardMiddleware needs LangChain v1` | installed without the extra | `pip install "flyyy-guard[langchain]"` |

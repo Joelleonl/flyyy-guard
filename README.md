@@ -2,9 +2,10 @@
 
 Block prompt injection **before it reaches your LLM**, using FLYYY's guardrail check.
 
-Every user prompt (and, by default, every tool result) is sent to FLYYY's
-`/api/v1/guardrails/check` endpoint before the model runs. If FLYYY flags it, the agent
-stops and returns a refusal; the model is never called. Every check shows up in
+The user's prompt is sent once to FLYYY's `/api/v1/guardrails/check` endpoint before the
+agent starts, where an LLM judge decides whether it is a prompt injection. If it is, the
+agent stops and returns a refusal; neither the model nor any tool is called. Otherwise the
+agent runs normally with no further checks. Every check shows up in
 FLYYY → AI Governance → GenAI Governance → your project → **Guardrails**.
 
 ## Quickstart (LangChain `create_agent`)
@@ -12,12 +13,17 @@ FLYYY → AI Governance → GenAI Governance → your project → **Guardrails**
 1. Install:
    ```bash
    pip install "flyyy-guard[langchain]"
+   # or, in a uv project
+   uv add "flyyy-guard[langchain]"
    ```
-2. Add to your `.env` (the key comes from FLYYY → GenAI Governance → your project → Guardrails):
+2. Add `FLYYY_URL` to the `.env` that already holds your project's Langfuse keys. The guard
+   authenticates with those same keys, so no extra key is needed:
    ```
+   LANGFUSE_PUBLIC_KEY=pk-lf-...
+   LANGFUSE_SECRET_KEY=sk-lf-...
    FLYYY_URL=https://<your-flyyy-backend>
-   FLYYY_GUARDRAIL_KEY=fg_xxxxxxxx
    ```
+   If you were given a guardrail key (`FLYYY_GUARDRAIL_KEY=fg_...`), it is used instead.
 3. Add the middleware where you create the agent:
    ```python
    from flyyy_guard import FlyyyGuardMiddleware
@@ -59,10 +65,11 @@ response = llm.invoke(user_prompt)
 | Option | Default | Meaning |
 |---|---|---|
 | `FlyyyGuardMiddleware(block_message=...)` | `"Your request was blocked by policy."` | Reply returned when blocked |
-| `FlyyyGuardMiddleware(check_tool_outputs=False)` | `True` | Only check user messages, not tool results |
+| `FlyyyGuardMiddleware(unavailable_message=...)` | `"The safety check is unavailable right now..."` | Reply when the check itself failed (FLYYY unreachable, timeout, rejected keys) |
+| `FlyyyToolOutputGuardMiddleware()` (add to `middleware=[...]`) | not used | Also check every tool result before the model reads it (one extra check per tool result) |
 | `FlyyyGuardMiddleware(redact_blocked=False)` | `True` | Keep the blocked text in conversation history |
 | `FLYYY_GUARD_FAIL_OPEN=true` / `fail_open=True` | off | If FLYYY is unreachable, allow instead of block |
-| `FLYYY_GUARD_TIMEOUT=3` / `timeout=3` | 3 seconds | How long to wait for FLYYY |
+| `FLYYY_GUARD_TIMEOUT=10` / `timeout=10` | 10 seconds | How long to wait for FLYYY |
 
 A rejected or revoked guardrail key always blocks, whatever the fail-open setting, so a
 misconfiguration is noticed instead of silently turning protection off.

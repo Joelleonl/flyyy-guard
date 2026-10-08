@@ -75,7 +75,7 @@ class FlyyyGuardClient:
                 self.settings.check_url,
                 json=payload,
                 headers={
-                    "Authorization": f"Bearer {self.settings.api_key}",
+                    "Authorization": self.settings.authorization,
                     "User-Agent": f"flyyy-guard/{__version__}",
                 },
                 timeout=self.settings.timeout,
@@ -84,10 +84,10 @@ class FlyyyGuardClient:
             return self._failure(type(exc).__name__)
 
         if response.status_code in (401, 403):
-            # A wrong or revoked key is a configuration error: always block so it gets noticed,
-            # whatever the fail-open setting says.
-            logger.error("flyyy-guard: guardrail key rejected (HTTP %s); blocking", response.status_code)
-            return GuardDecision(allowed=False, decision="block", reason="guardrail key rejected",
+            # Wrong or revoked credentials are a configuration error: always block so it gets
+            # noticed, whatever the fail-open setting says.
+            logger.error("flyyy-guard: credentials rejected (HTTP %s); blocking", response.status_code)
+            return GuardDecision(allowed=False, decision="block", reason="guardrail credentials rejected",
                                  error=f"HTTP {response.status_code}")
         if response.status_code >= 400:
             return self._failure(f"HTTP {response.status_code}")
@@ -105,6 +105,8 @@ class FlyyyGuardClient:
             attack_type=str(data.get("attack_type") or "none"),
             reason=str(data.get("reason") or ""),
             request_id=data.get("request_id"),
+            # Set when FLYYY's LLM judge was unavailable and its fail-closed/open policy decided.
+            error=data.get("error") or None,
             raw=data,
         )
 
@@ -120,7 +122,7 @@ def _client() -> FlyyyGuardClient:
 
 
 def check(text: str, *, session_id: Optional[str] = None, source: Source = "user_input") -> GuardDecision:
-    """Module-level shortcut using FLYYY_URL / FLYYY_GUARDRAIL_KEY from the environment."""
+    """Module-level shortcut using FLYYY_URL and the LANGFUSE_* keys (or FLYYY_GUARDRAIL_KEY) from the environment."""
     return _client().check(text, session_id=session_id, source=source)
 
 
