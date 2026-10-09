@@ -13,6 +13,8 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from flyyy_guard import GuardDecision  # noqa: E402
 from flyyy_guard.middleware import (  # noqa: E402
     DEFAULT_BLOCK_MESSAGE,
+    DEFAULT_REJECTED_MESSAGE,
+    DEFAULT_UNAVAILABLE_MESSAGE,
     REDACTED_INPUT,
     FlyyyGuardMiddleware,
     FlyyyToolOutputGuardMiddleware,
@@ -139,3 +141,27 @@ def test_custom_block_message():
     agent, _ = build([AIMessage(content="x")], block_message="Sorry, I can't help with that.")
     result = run(agent, INJECTION)
     assert result["messages"][-1].content == "Sorry, I can't help with that."
+
+
+class FailingGuardClient:
+    def __init__(self, decision):
+        self.decision = decision
+
+    def check(self, text, *, session_id=None, source="user_input"):
+        return self.decision
+
+
+def test_rejected_credentials_get_their_own_message():
+    decision = GuardDecision(allowed=False, decision="block", reason="guardrail credentials rejected",
+                             error="HTTP 401", credentials_rejected=True)
+    agent, _ = build([AIMessage(content="x")], guard=FailingGuardClient(decision))
+    result = run(agent, "what are your plans?")
+    assert result["messages"][-1].content == DEFAULT_REJECTED_MESSAGE
+    assert CountingModel.calls == 0
+
+
+def test_outage_gets_unavailable_message():
+    decision = GuardDecision(allowed=False, decision="block", reason="guardrail unavailable", error="ConnectionError")
+    agent, _ = build([AIMessage(content="x")], guard=FailingGuardClient(decision))
+    result = run(agent, "what are your plans?")
+    assert result["messages"][-1].content == DEFAULT_UNAVAILABLE_MESSAGE

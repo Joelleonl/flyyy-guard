@@ -80,6 +80,13 @@ def test_rejected_key_always_blocks_even_when_fail_open():
     c, _ = make(FakeResponse(401, {"detail": "bad key"}), fail_open=True)
     d = c.check("hello")
     assert not d.allowed and d.reason == "guardrail credentials rejected"
+    assert d.credentials_rejected
+
+
+def test_outage_is_not_reported_as_rejected_credentials():
+    c, _ = make(FakeResponse(503, {"detail": "down"}))
+    d = c.check("hello")
+    assert not d.allowed and d.error == "HTTP 503" and not d.credentials_rejected
 
 
 def test_invalid_json_uses_fail_policy():

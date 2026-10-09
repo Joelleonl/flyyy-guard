@@ -30,6 +30,9 @@ class GuardDecision:
     # Set when FLYYY could not be reached or rejected the request; the decision then
     # comes from the fail-open / fail-closed setting rather than from the detector.
     error: Optional[str] = None
+    # True when FLYYY rejected the agent's credentials (HTTP 401/403): a configuration
+    # problem that retrying will not fix.
+    credentials_rejected: bool = False
     raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
@@ -86,9 +89,14 @@ class FlyyyGuardClient:
         if response.status_code in (401, 403):
             # Wrong or revoked credentials are a configuration error: always block so it gets
             # noticed, whatever the fail-open setting says.
-            logger.error("flyyy-guard: credentials rejected (HTTP %s); blocking", response.status_code)
+            logger.error(
+                "flyyy-guard: FLYYY rejected the agent's credentials (HTTP %s); blocking. Check that "
+                "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (or FLYYY_GUARDRAIL_KEY) are current keys of an "
+                "active project in FLYYY -> GenAI Governance, and that FLYYY_URL points at that FLYYY backend.",
+                response.status_code,
+            )
             return GuardDecision(allowed=False, decision="block", reason="guardrail credentials rejected",
-                                 error=f"HTTP {response.status_code}")
+                                 error=f"HTTP {response.status_code}", credentials_rejected=True)
         if response.status_code >= 400:
             return self._failure(f"HTTP {response.status_code}")
         try:

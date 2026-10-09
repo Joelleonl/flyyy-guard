@@ -24,9 +24,15 @@ from flyyy_guard.client import FlyyyGuardClient, GuardDecision, Source
 logger = logging.getLogger("flyyy_guard")
 
 DEFAULT_BLOCK_MESSAGE = "Your request was blocked by policy."
-# Used when the check itself failed (FLYYY unreachable, timeout, rejected credentials), so a
-# configuration problem is not mistaken for a detected attack.
+# Used when the check itself failed (FLYYY unreachable, timeout), so an outage is not
+# mistaken for a detected attack.
 DEFAULT_UNAVAILABLE_MESSAGE = "The safety check is unavailable right now, so your request was not processed. Please try again."
+# Used when FLYYY rejected the agent's keys: retrying will not help, the agent's
+# configuration has to be fixed.
+DEFAULT_REJECTED_MESSAGE = (
+    "This assistant's safety check is not configured correctly, so your request was not processed. "
+    "Please contact the administrator."
+)
 REDACTED_INPUT = "[Removed: blocked by FLYYY guard]"
 
 
@@ -72,6 +78,7 @@ class FlyyyGuardMiddleware(AgentMiddleware):
         api_key: Optional[str] = None,
         block_message: str = DEFAULT_BLOCK_MESSAGE,
         unavailable_message: str = DEFAULT_UNAVAILABLE_MESSAGE,
+        rejected_message: str = DEFAULT_REJECTED_MESSAGE,
         redact_blocked: bool = True,
         fail_open: Optional[bool] = None,
         timeout: Optional[float] = None,
@@ -81,6 +88,7 @@ class FlyyyGuardMiddleware(AgentMiddleware):
         self.client = client or FlyyyGuardClient(url, api_key, timeout=timeout, fail_open=fail_open)
         self.block_message = block_message
         self.unavailable_message = unavailable_message
+        self.rejected_message = rejected_message
         self.redact_blocked = redact_blocked
 
     def _pending(self, messages: list[AnyMessage]) -> list[tuple[AnyMessage, Source]]:
@@ -103,9 +111,15 @@ class FlyyyGuardMiddleware(AgentMiddleware):
                 updates.append(ToolMessage(content=REDACTED_INPUT, tool_call_id=message.tool_call_id, id=message.id))
             else:
                 updates.append(HumanMessage(content=REDACTED_INPUT, id=message.id))
+        if decision.credentials_rejected:
+            content = self.rejected_message
+        elif decision.error:
+            content = self.unavailable_message
+        else:
+            content = self.block_message
         updates.append(
             AIMessage(
-                content=self.unavailable_message if decision.error else self.block_message,
+                content=content,
                 response_metadata={
                     "flyyy_guard": {
                         "blocked": True,

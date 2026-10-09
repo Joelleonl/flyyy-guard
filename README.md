@@ -65,7 +65,8 @@ response = llm.invoke(user_prompt)
 | Option | Default | Meaning |
 |---|---|---|
 | `FlyyyGuardMiddleware(block_message=...)` | `"Your request was blocked by policy."` | Reply returned when blocked |
-| `FlyyyGuardMiddleware(unavailable_message=...)` | `"The safety check is unavailable right now..."` | Reply when the check itself failed (FLYYY unreachable, timeout, rejected keys) |
+| `FlyyyGuardMiddleware(unavailable_message=...)` | `"The safety check is unavailable right now..."` | Reply when the check itself failed (FLYYY unreachable, timeout, server error) |
+| `FlyyyGuardMiddleware(rejected_message=...)` | `"This assistant's safety check is not configured correctly..."` | Reply when FLYYY rejected the agent's keys (wrong, revoked, or from another Langfuse) |
 | `FlyyyToolOutputGuardMiddleware()` (add to `middleware=[...]`) | not used | Also check every tool result before the model reads it (one extra check per tool result) |
 | `FlyyyGuardMiddleware(redact_blocked=False)` | `True` | Keep the blocked text in conversation history |
 | `FLYYY_GUARD_FAIL_OPEN=true` / `fail_open=True` | off | If FLYYY is unreachable, allow instead of block |
